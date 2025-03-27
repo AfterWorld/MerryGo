@@ -9,7 +9,7 @@ class Cleanup(commands.Cog):
     def __init__(self, bot):
         self.bot = bot
 
-    @commands.command(name="clean", help="Delete messages from a user in a specific channel and assign 'Prisoner' role.")
+    @commands.command(name="clean", help="Delete messages from a user in a specific channel and assign 'muted' role.")
     @commands.guild_only()
     @commands.has_permissions(manage_messages=True)
     async def clean_user_channel(
@@ -21,11 +21,11 @@ class Cleanup(commands.Cog):
         if not user or not channel:
             embed = discord.Embed(
                 title="🧼 Clean Command Usage",
-                description="Deletes messages from a user in a given channel and assigns the **Prisoner** role.",
+                description="Deletes messages from a user in a given channel and assigns the **muted** role.",
                 color=discord.Color.orange()
             )
-            embed.add_field(name="Usage", value=".clean <@user> <#channel>", inline=False)
-            embed.add_field(name="Example", value=".clean @Troublemaker #general", inline=False)
+            embed.add_field(name="Usage", value="!clean <@user> <#channel>", inline=False)
+            embed.add_field(name="Example", value="!clean @Troublemaker #general", inline=False)
             await ctx.send(embed=embed)
             return
 
@@ -50,20 +50,20 @@ class Cleanup(commands.Cog):
 
         # Apply Prisoner role
         if isinstance(user, discord.Member):
-            prisoner_role = discord.utils.get(ctx.guild.roles, name="Prisoner")
-            if not prisoner_role:
+            muted_role = discord.utils.get(ctx.guild.roles, name="Muted")
+            if not muted_role:
                 try:
-                    prisoner_role = await ctx.guild.create_role(name="Prisoner", reason="BotCombat punishment")
-                    await ctx.send("🪓 Created 'Prisoner' role.")
+                    muted_role = await ctx.guild.create_role(name="Muted", reason="OPC punishment")
+                    await ctx.send("🪓 Created 'Muted' role.")
                 except discord.Forbidden:
                     await ctx.send("❌ I don't have permission to create roles.")
                     return
 
             try:
-                await user.add_roles(prisoner_role, reason="Marked by BotCombat")
+                await user.add_roles(muted_role, reason="Marked by OPC")
                 await ctx.send(f"🚨 `{user.display_name}` has been imprisoned.")
             except discord.Forbidden:
-                await ctx.send("❌ I don't have permission to assign the Prisoner role.")
+                await ctx.send("❌ I don't have permission to assign the Muted role.")
         else:
             await ctx.send("⚠️ That user is not a member of this server. Skipping role assignment.")
 
