@@ -1,7 +1,6 @@
 import discord
 from discord.ext import commands
 import os
-import inspect
 import json
 
 # Load config for owner check
@@ -16,45 +15,38 @@ def is_owner():
 class TxtFile(commands.Cog):
     def __init__(self, bot):
         self.bot = bot
+        self.cogs_dir = "/home/adam/MerryGo/cogs"  # Set your cogs directory path here
         
     @commands.command(name="txtfile")
-    @is_owner()  # Using your custom owner check
+    @is_owner()
     async def txtfile(self, ctx, cog_name: str):
-        """Generate a text file with the source code of the specified cog."""
+        """Send the source code file for a specified cog."""
         
-        # Try to find the cog with case-insensitive matching
-        found_cog = None
-        found_name = None
-        
-        for name, cog in self.bot.cogs.items():
-            if name.lower() == cog_name.lower():
-                found_cog = cog
-                found_name = name
-                break
+        # First check if the cog exists as a direct Python file
+        py_file_path = os.path.join(self.cogs_dir, f"{cog_name}.py")
+        if os.path.exists(py_file_path):
+            await ctx.send(f"Here's the source code for `{cog_name}`:", 
+                          file=discord.File(py_file_path))
+            return
+            
+        # If not found, look for any file that contains the cog name
+        possible_files = []
+        for filename in os.listdir(self.cogs_dir):
+            if filename.endswith('.py') and cog_name.lower() in filename.lower():
+                possible_files.append(filename)
                 
-        if found_cog is None:
-            available_cogs = ", ".join(self.bot.cogs.keys())
-            return await ctx.send(f"Cog `{cog_name}` not found. Available cogs: {available_cogs}")
-        
-        # Get the source code using inspect
-        try:
-            source = inspect.getsource(found_cog.__class__)
+        if not possible_files:
+            return await ctx.send(f"No cog file found with name `{cog_name}`.")
             
-            # Create a text file with the source code
-            file_path = f"temp_{found_name.lower()}.py"
-            with open(file_path, "w", encoding="utf-8") as f:
-                f.write(source)
-            
-            # Send the file to Discord
-            await ctx.send(f"Here's the source code for `{found_name}`:", 
+        if len(possible_files) == 1:
+            # If only one match, send it
+            file_path = os.path.join(self.cogs_dir, possible_files[0])
+            await ctx.send(f"Here's the source code for `{possible_files[0]}`:", 
                           file=discord.File(file_path))
-                          
-            # Clean up by removing the temporary file
-            if os.path.exists(file_path):
-                os.remove(file_path)
-                
-        except Exception as e:
-            await ctx.send(f"Error retrieving source code: {e}")
+        else:
+            # If multiple matches, ask the user to specify
+            await ctx.send(f"Multiple files found for `{cog_name}`. Please specify which one:\n" + 
+                          "\n".join(possible_files))
 
 async def setup(bot):
     await bot.add_cog(TxtFile(bot))
