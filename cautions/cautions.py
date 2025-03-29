@@ -1,7 +1,6 @@
 import discord
-from discord import app_commands
 from discord.ext import commands, tasks
-from typing import Optional, Dict, List, Union, Any, Literal, Tuple
+from typing import Optional, Dict, List, Union, Any, Tuple
 from datetime import datetime, timedelta
 import asyncio
 import time
@@ -325,9 +324,9 @@ class Moderation(commands.Cog):
             # Mark queue as not processing
             queue_data["processing"] = False
 
-    # Settings commands with hybrid command support
-    @commands.hybrid_group(name="cautionset", fallback="help")
-    @commands.has_guild_permissions(administrator=True)
+    # Settings commands with traditional command support
+    @commands.group(name="cautionset", invoke_without_command=True)
+    @commands.has_permissions(administrator=True)
     async def caution_settings(self, ctx):
         """Configure the warning system settings."""
         if ctx.invoked_subcommand is None:
@@ -339,18 +338,17 @@ class Moderation(commands.Cog):
             embed.add_field(
                 name="Commands",
                 value=(
-                    "`/cautionset expiry <days>` - Set warning expiry time\n"
-                    "`/cautionset setthreshold <points> <action> [duration] [reason]` - Set action thresholds\n"
-                    "`/cautionset removethreshold <points>` - Remove a threshold\n"
-                    "`/cautionset showthresholds` - List all thresholds\n"
-                    "`/cautionset setlogchannel [channel]` - Set the log channel"
+                    "`!cautionset expiry <days>` - Set warning expiry time\n"
+                    "`!cautionset setthreshold <points> <action> [duration] [reason]` - Set action thresholds\n"
+                    "`!cautionset removethreshold <points>` - Remove a threshold\n"
+                    "`!cautionset showthresholds` - List all thresholds\n"
+                    "`!cautionset setlogchannel [channel]` - Set the log channel"
                 ),
                 inline=False
             )
             await ctx.send(embed=embed)
 
     @caution_settings.command(name="expiry")
-    @app_commands.describe(days="Number of days before warnings expire")
     async def set_warning_expiry(self, ctx, days: int):
         """Set how many days until warnings expire automatically."""
         if days < 1:
@@ -363,18 +361,6 @@ class Moderation(commands.Cog):
         await ctx.send(f"Warnings will now expire after {days} days.")
 
     @caution_settings.command(name="setthreshold")
-    @app_commands.describe(
-        points="Number of points to trigger this action",
-        action="The action to take when the threshold is reached",
-        duration="Duration in minutes (required for mute and timeout)",
-        reason="Reason for the action"
-    )
-    @app_commands.choices(action=[
-        app_commands.Choice(name="Mute", value="mute"),
-        app_commands.Choice(name="Timeout", value="timeout"),
-        app_commands.Choice(name="Kick", value="kick"),
-        app_commands.Choice(name="Ban", value="ban")
-    ])
     async def set_action_threshold(
         self, ctx, 
         points: int, 
@@ -420,7 +406,6 @@ class Moderation(commands.Cog):
         await ctx.send(confirmation)
 
     @caution_settings.command(name="removethreshold")
-    @app_commands.describe(points="Point threshold to remove")
     async def remove_action_threshold(self, ctx, points: int):
         """Remove an automatic action threshold."""
         guild_config = await self.config.get_guild_config(ctx.guild.id)
@@ -463,7 +448,6 @@ class Moderation(commands.Cog):
         await ctx.send(embed=embed)
 
     @caution_settings.command(name="setlogchannel")
-    @app_commands.describe(channel="Channel to use for logs (defaults to current channel)")
     async def set_log_channel(self, ctx, channel: Optional[discord.TextChannel] = None):
         """Set the channel where moderation actions will be logged."""
         if channel is None:
@@ -475,13 +459,8 @@ class Moderation(commands.Cog):
         
         await ctx.send(f"Log channel set to {channel.mention}")
 
-    @commands.hybrid_command(name="caution")
-    @commands.has_guild_permissions(moderate_members=True)
-    @app_commands.describe(
-        member="The member to warn",
-        points="Number of warning points (default: 1)",
-        reason="Reason for the warning"
-    )
+    @commands.command(name="caution")
+    @commands.has_permissions(kick_members=True)
     async def warn_member(self, ctx, member: discord.Member, points: int = 1, *, reason: Optional[str] = None):
         """
         Issue a caution/warning to a member with optional point value.
@@ -651,13 +630,8 @@ class Moderation(commands.Cog):
             await self.safe_send_message(ctx.channel, f"Failed to apply automatic {action}: {str(e)}")
             logger.error(f"Error in apply_threshold_action: {e}")
 
-    @commands.hybrid_command(name="quiet")
-    @commands.has_guild_permissions(moderate_members=True)
-    @app_commands.describe(
-        member="The member to mute",
-        duration="Mute duration in minutes",
-        reason="Reason for the mute"
-    )
+    @commands.command(name="quiet")
+    @commands.has_permissions(manage_roles=True)
     async def mute_member(self, ctx, member: discord.Member, duration: int = 30, *, reason: Optional[str] = None):
         """Mute a member for the specified duration (in minutes)."""
         try:
@@ -708,8 +682,8 @@ class Moderation(commands.Cog):
             await ctx.send(f"Error applying mute: {str(e)}")
             logger.error(f"Error in mute_member command: {e}")
 
-    @commands.hybrid_command(name="setupmute")
-    @commands.has_guild_permissions(administrator=True)
+    @commands.command(name="setupmute")
+    @commands.has_permissions(administrator=True)
     async def setup_mute_role(self, ctx):
         """Set up the muted role for the server."""
         try:
@@ -810,9 +784,8 @@ class Moderation(commands.Cog):
                 if log_channel:
                     await self.safe_send_message(log_channel, f"Error unmuting {member.mention}: {str(e)}")
 
-    @commands.hybrid_command(name="unquiet")
-    @commands.has_guild_permissions(moderate_members=True)
-    @app_commands.describe(member="The member to unmute")
+    @commands.command(name="unquiet")
+    @commands.has_permissions(manage_roles=True)
     async def unmute_member(self, ctx, member: discord.Member):
         """Unmute a member."""
         guild_config = await self.config.get_guild_config(ctx.guild.id)
@@ -830,8 +803,7 @@ class Moderation(commands.Cog):
         else:
             await ctx.send(f"{member.mention} is not muted.")
 
-    @commands.hybrid_command(name="cautions")
-    @app_commands.describe(member="The member to check warnings for (defaults to yourself)")
+    @commands.command(name="cautions")
     async def list_warnings(self, ctx, member: Optional[discord.Member] = None):
         """
         List all active warnings for a member.
@@ -841,7 +813,7 @@ class Moderation(commands.Cog):
             member = ctx.author
         
         # Check permissions if checking someone else
-        if member != ctx.author and not ctx.author.guild_permissions.moderate_members:
+        if member != ctx.author and not ctx.author.guild_permissions.kick_members:
             return await ctx.send("You don't have permission to view other members' warnings.")
         
         # Get member data
@@ -882,9 +854,8 @@ class Moderation(commands.Cog):
         
         await ctx.send(embed=embed)
 
-    @commands.hybrid_command(name="clearcautions")
-    @commands.has_guild_permissions(moderate_members=True)
-    @app_commands.describe(member="The member to clear warnings for")
+    @commands.command(name="clearcautions")
+    @commands.has_permissions(kick_members=True)
     async def clear_warnings(self, ctx, member: discord.Member):
         """Clear all warnings from a member."""
         # Get member data
@@ -911,12 +882,8 @@ class Moderation(commands.Cog):
         else:
             await ctx.send(f"{member.mention} has no warnings to clear.")
 
-    @commands.hybrid_command(name="removecaution")
-    @commands.has_guild_permissions(moderate_members=True)
-    @app_commands.describe(
-        member="The member to remove a warning from",
-        warning_index="The index of the warning to remove (use /cautions to see indexes)"
-    )
+    @commands.command(name="removecaution")
+    @commands.has_permissions(kick_members=True)
     async def remove_warning(self, ctx, member: discord.Member, warning_index: int):
         """Remove a specific warning from a member by index (use '/cautions' to see indexes)."""
         if warning_index < 1:
@@ -1006,6 +973,6 @@ class Moderation(commands.Cog):
             await ctx.send(f"An error occurred: {error}")
             logger.error(f"Command error in {ctx.command}: {error}")
 
-async def setup(bot):
+def setup(bot):
     """Setup function for the moderation cog."""
-    await bot.add_cog(Moderation(bot))
+    bot.add_cog(Moderation(bot))
