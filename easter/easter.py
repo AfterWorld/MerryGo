@@ -27,12 +27,17 @@ class EasterHunt(commands.Cog):
     async def cog_load(self):
         """Initialize Redis connection when cog is loaded"""
         try:
-            # Use aioredis for async Redis operations
-            import aioredis
-            self.redis = await aioredis.from_url(self.redis_url, decode_responses=True)
+            # Use redis.asyncio for Discord.py 2.0
+            import redis.asyncio as aioredis
+            self.redis = aioredis.from_url(self.redis_url, decode_responses=True)
             
-            # Load configuration from Redis
-            self.is_active = (await self.redis.get("egghunt:active")) == "true"
+            # Test the connection
+            await self.redis.ping()
+            
+            # Now load configuration from Redis
+            is_active = await self.redis.get("egghunt:active")
+            self.is_active = is_active == "true" if is_active else False
+            
             main_channel = await self.redis.get("egghunt:main_channel")
             self.main_channel = int(main_channel) if main_channel else 0
             
@@ -51,10 +56,36 @@ class EasterHunt(commands.Cog):
                 minutes = int(spawn_rate or 30)
                 self.spawn_eggs.start(minutes=minutes)
                 
-            print("EasterHunt: Redis connection established")
+            print("EasterHunt: Redis connection established successfully")
+        except ImportError:
+            print("EasterHunt: Failed to import redis.asyncio module. Please install it with: pip install redis")
+            self.redis = None
         except Exception as e:
             print(f"EasterHunt: Error connecting to Redis: {e}")
             self.redis = None
+            
+    # Helper method to ensure Redis is connected
+    async def ensure_redis(self):
+        """Ensure Redis is connected and try to reconnect if not"""
+        if self.redis is None:
+            await self.cog_load()
+            
+        if self.redis is None:
+            return False
+            
+        try:
+            # Test connection
+            await self.redis.ping()
+            return True
+        except:
+            # Try to reconnect
+            try:
+                import redis.asyncio as aioredis
+                self.redis = aioredis.from_url(self.redis_url, decode_responses=True)
+                await self.redis.ping()
+                return True
+            except:
+                return False
             
     # Helper method for loading egg configuration
     async def load_egg_config(self) -> Dict:
