@@ -2,6 +2,8 @@ import discord
 from discord.ext import commands, tasks
 import datetime
 import json
+import redis
+import random
 import asyncio
 import os
 from typing import Optional, List, Dict, Union
