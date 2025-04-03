@@ -1580,6 +1580,143 @@ class Narutodle(commands.Cog):
                 
             except Exception as e:
                 self.logger.error(f"Error updating game embed: {e}")
+
+    @narutodle.command(name="test_redis")
+    async def narutodle_test_redis(self, ctx):
+        """Test the Redis connection and display detailed error information."""
+        # Only allow server admins to run this command
+        if not self._check_permissions(ctx, admin_only=True):
+            await ctx.send("⛔ You don't have permission to test Redis. This requires administrator permissions.")
+            return
+            
+        await ctx.typing()
+        
+        embed = discord.Embed(
+            title="Redis Connection Test",
+            description="Testing connection to Redis server...",
+            color=discord.Color.blue()
+        )
+        
+        # First, show what URL we're using (with password hidden)
+        redis_url_parts = self.redis_url.split('@')
+        if len(redis_url_parts) > 1:
+            # There's an @ symbol, so we have auth info
+            auth_parts = redis_url_parts[0].split(':')
+            if len(auth_parts) >= 3:  # redis://user:pass format
+                # Hide the password
+                hidden_url = f"{auth_parts[0]}:{auth_parts[1]}:***@{redis_url_parts[1]}"
+            else:
+                hidden_url = f"{auth_parts[0]}:***@{redis_url_parts[1]}"
+        else:
+            hidden_url = self.redis_url
+            
+        embed.add_field(
+            name="Redis URL", 
+            value=f"`{hidden_url}`", 
+            inline=False
+        )
+        
+        # Test the connection
+        try:
+            # Create a fresh connection for testing
+            test_redis = await redis.from_url(self.redis_url)
+            
+            # Try to ping
+            ping_result = await test_redis.ping()
+            
+            if ping_result:
+                embed.add_field(
+                    name="Connection Status",
+                    value="✅ Successfully connected to Redis!",
+                    inline=False
+                )
+                embed.color = discord.Color.green()
+            else:
+                embed.add_field(
+                    name="Connection Status",
+                    value="❌ Ping failed with an unknown error",
+                    inline=False
+                )
+                embed.color = discord.Color.red()
+                
+            # Try a simple set/get operation
+            try:
+                test_key = f"narutodle:test:{ctx.guild.id}:{ctx.author.id}"
+                test_value = f"Test from {ctx.author.name} at {datetime.utcnow().isoformat()}"
+                
+                # Try setting a value
+                await test_redis.set(test_key, test_value, ex=60)  # Expire after 60 seconds
+                
+                # Try getting it back
+                retrieved = await test_redis.get(test_key)
+                
+                if retrieved and retrieved.decode('utf-8') == test_value:
+                    embed.add_field(
+                        name="Data Operations",
+                        value="✅ Successfully stored and retrieved test data",
+                        inline=False
+                    )
+                else:
+                    embed.add_field(
+                        name="Data Operations",
+                        value=f"❌ Data retrieval failed. Expected: `{test_value}`, Got: `{retrieved}`",
+                        inline=False
+                    )
+            except Exception as e:
+                embed.add_field(
+                    name="Data Operations",
+                    value=f"❌ Error during data test: `{str(e)}`",
+                    inline=False
+                )
+                
+            # Close test connection
+            await test_redis.close()
+            
+        except Exception as e:
+            embed.add_field(
+                name="Connection Error",
+                value=f"❌ Failed to connect: `{str(e)}`",
+                inline=False
+            )
+            embed.color = discord.Color.red()
+            
+            # Add some troubleshooting suggestions based on the error
+            if "NOAUTH" in str(e):
+                embed.add_field(
+                    name="Troubleshooting",
+                    value="Authentication error. Check your Redis password and username.",
+                    inline=False
+                )
+            elif "Connection refused" in str(e):
+                embed.add_field(
+                    name="Troubleshooting",
+                    value="Connection refused. Make sure Redis is running and the host/port are correct.",
+                    inline=False
+                )
+            elif "Timeout" in str(e):
+                embed.add_field(
+                    name="Troubleshooting",
+                    value="Connection timed out. Check network connectivity to the Redis server.",
+                    inline=False
+                )
+            else:
+                embed.add_field(
+                    name="Troubleshooting",
+                    value="Unknown error. Check Redis logs for more information.",
+                    inline=False
+                )
+        
+        # Add a field with instructions for updating Redis URL
+        embed.add_field(
+            name="Update Redis URL",
+            value=(
+                "To update the Redis URL, you can set the `REDIS_URL` environment variable "
+                "or modify the code directly. Format: `redis://[username:]password@host:port/db`"
+            ),
+            inline=False
+        )
+        
+        await ctx.send(embed=embed)
                 
     @narutodle.command(name="help")
     async def narutodle_help(self, ctx):
