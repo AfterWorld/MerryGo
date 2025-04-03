@@ -914,5 +914,5 @@ class EasterHunt(commands.Cog):
         if self.spawn_eggs.is_running():
             self.spawn_eggs.cancel()
 
-def setup(bot):
-    bot.add_cog(EasterHunt(bot))
+async def setup(bot):
+    await bot.add_cog(EasterHunt(bot))
