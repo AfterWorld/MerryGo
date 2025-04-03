@@ -32,8 +32,8 @@ class Narutodle(commands.Cog):
         self.session = None  # Will be initialized in cog_load
         self.modes = ["classic", "jutsu", "quote", "eye"]
         
-        # Redis connection
-        self.redis_url = redis_url or os.getenv("REDIS_URL", "redis://default:onepiece0212!@localhost:6379/0")
+        # Redis connection - MODIFY THIS LINE
+        self.redis_url = redis_url or os.getenv("REDIS_URL", "redis://:onepiece0212!@localhost:6379/0")
         self.redis = None  # Will be initialized in cog_load
         
         # Cache expiry (defaults to 24 hours)
@@ -57,21 +57,13 @@ class Narutodle(commands.Cog):
         self.session = aiohttp.ClientSession()
         self.logger.info("Narutodle cog loaded and session initialized")
         
-        # Set your Redis URL with authentication - make sure this isn't overridden by an environment variable
-        redis_url_env = os.getenv("REDIS_URL")
-        if redis_url_env:
-            self.logger.info(f"Using Redis URL from environment variable")
-            self.redis_url = redis_url_env
-        else:
-            self.redis_url = "redis://:onepiece0212!@localhost:6379/0"  # Note the format with password
-            self.logger.info(f"Using hardcoded Redis URL")
-        
-        # Log sanitized URL (hide password)
+        # Log the Redis URL being used (without the password)
         sanitized_url = self.redis_url.replace("onepiece0212!", "********")
         self.logger.info(f"Attempting to connect to Redis with URL: {sanitized_url}")
         
         # Initialize Redis connection
         try:
+            # Make sure you're using the correct Redis URL format
             self.redis = await redis.from_url(self.redis_url)
             # Test connection
             await self.redis.ping()
@@ -1788,6 +1780,6 @@ class Narutodle(commands.Cog):
         
 async def setup(bot):
     """Add the cog to the bot."""
-    # Create cog instance with Redis URL from environment
-    redis_url = os.getenv("REDIS_URL", "redis://localhost:6379/0")
+    # Create cog instance with Redis URL
+    redis_url = "redis://:onepiece0212!@localhost:6379/0"  
     await bot.add_cog(Narutodle(bot, redis_url))
