@@ -57,8 +57,17 @@ class Narutodle(commands.Cog):
         self.session = aiohttp.ClientSession()
         self.logger.info("Narutodle cog loaded and session initialized")
         
-        # Print the Redis URL being used (without the password)
-        sanitized_url = self.redis_url.replace(":onepiece0212!", ":********")
+        # Set your Redis URL with authentication - make sure this isn't overridden by an environment variable
+        redis_url_env = os.getenv("REDIS_URL")
+        if redis_url_env:
+            self.logger.info(f"Using Redis URL from environment variable")
+            self.redis_url = redis_url_env
+        else:
+            self.redis_url = "redis://:onepiece0212!@localhost:6379/0"  # Note the format with password
+            self.logger.info(f"Using hardcoded Redis URL")
+        
+        # Log sanitized URL (hide password)
+        sanitized_url = self.redis_url.replace("onepiece0212!", "********")
         self.logger.info(f"Attempting to connect to Redis with URL: {sanitized_url}")
         
         # Initialize Redis connection
@@ -66,7 +75,7 @@ class Narutodle(commands.Cog):
             self.redis = await redis.from_url(self.redis_url)
             # Test connection
             await self.redis.ping()
-            self.logger.info(f"Successfully connected to Redis at {sanitized_url}")
+            self.logger.info(f"Successfully connected to Redis")
         except Exception as e:
             self.logger.error(f"Failed to connect to Redis: {e}")
             self.logger.warning("Falling back to in-memory cache")
