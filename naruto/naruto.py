@@ -33,7 +33,7 @@ class Narutodle(commands.Cog):
         self.modes = ["classic", "jutsu", "quote", "eye"]
         
         # Redis connection
-        self.redis_url = redis_url or os.getenv("REDIS_URL", "redis://localhost:6379/0")
+        self.redis_url = redis_url or os.getenv("REDIS_URL", "redis://default:onepiece0212!@localhost:6379/0")
         self.redis = None  # Will be initialized in cog_load
         
         # Cache expiry (defaults to 24 hours)
