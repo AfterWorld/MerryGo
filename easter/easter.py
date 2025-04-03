@@ -1,11 +1,10 @@
 import discord
 from discord.ext import commands, tasks
 import datetime
-import redis
-import random
 import json
-import os
 import asyncio
+import os
+import random
 from typing import Optional, List, Dict, Union
 
 class EasterHunt(commands.Cog):
@@ -22,7 +21,7 @@ class EasterHunt(commands.Cog):
         self.eggs = {
             "common": {"emoji": "🥚", "points": 50, "chance": 70},
             "rare": {"emoji": "🐣", "points": 200, "chance": 25},
-            "legendary": {"emoji": "✨🥚✨", "points": 500, "chance": 5}
+            "legendary": {"emoji": "✨", "points": 500, "chance": 5}
         }
         
     async def cog_load(self):
@@ -49,7 +48,8 @@ class EasterHunt(commands.Cog):
             # Start spawning task if event is active
             if self.is_active:
                 spawn_rate = await self.redis.get("egghunt:spawn_rate") 
-                self.spawn_eggs.start(minutes=int(spawn_rate or 30))
+                minutes = int(spawn_rate or 30)
+                self.spawn_eggs.start(minutes=minutes)
                 
             print("EasterHunt: Redis connection established")
         except Exception as e:
@@ -59,6 +59,9 @@ class EasterHunt(commands.Cog):
     # Helper method for loading egg configuration
     async def load_egg_config(self) -> Dict:
         """Load egg configuration from Redis or set defaults"""
+        if not self.redis:
+            return self.eggs
+            
         egg_config = await self.redis.get("egghunt:eggs")
         if egg_config:
             return json.loads(egg_config)
@@ -67,7 +70,7 @@ class EasterHunt(commands.Cog):
             default_eggs = {
                 "common": {"emoji": "🥚", "points": 50, "chance": 70},
                 "rare": {"emoji": "🐣", "points": 200, "chance": 25},
-                "legendary": {"emoji": "✨🥚✨", "points": 500, "chance": 5}
+                "legendary": {"emoji": "✨", "points": 500, "chance": 5}
             }
             await self.redis.set("egghunt:eggs", json.dumps(default_eggs))
             return default_eggs
@@ -137,19 +140,25 @@ class EasterHunt(commands.Cog):
     @commands.has_permissions(administrator=True)
     async def mainchannel(self, ctx, channel: discord.TextChannel):
         """Set the main channel for egg spawns"""
+        if not self.redis:
+            return await ctx.send("❌ Redis connection is not established")
+            
         self.main_channel = channel.id
-        self.redis.set("egghunt:main_channel", str(channel.id))
+        await self.redis.set("egghunt:main_channel", str(channel.id))
         await ctx.send(f"✅ Main channel set to {channel.mention}")
 
     @egghunt.command()
     @commands.has_permissions(administrator=True)
     async def includechannel(self, ctx, channel: discord.TextChannel):
         """Add a channel to the spawn pool"""
+        if not self.redis:
+            return await ctx.send("❌ Redis connection is not established")
+            
         if channel.id == self.main_channel:
             return await ctx.send("❌ This channel is already set as the main channel.")
         
-        self.redis.sadd("egghunt:spawn_channels", str(channel.id))
-        self.redis.set(f"egghunt:channel:{channel.id}:weight", "5")  # Default weight
+        await self.redis.sadd("egghunt:spawn_channels", str(channel.id))
+        await self.redis.set(f"egghunt:channel:{channel.id}:weight", "5")  # Default weight
         self.spawn_channels.append(channel.id)
         await ctx.send(f"✅ Added {channel.mention} to spawn channels")
 
@@ -157,11 +166,14 @@ class EasterHunt(commands.Cog):
     @commands.has_permissions(administrator=True)
     async def removechannel(self, ctx, channel: discord.TextChannel):
         """Remove a channel from the spawn pool"""
+        if not self.redis:
+            return await ctx.send("❌ Redis connection is not established")
+            
         if channel.id == self.main_channel:
             return await ctx.send("❌ You cannot remove the main channel. Use `!egghunt mainchannel` to change it.")
         
-        self.redis.srem("egghunt:spawn_channels", str(channel.id))
-        self.redis.delete(f"egghunt:channel:{channel.id}:weight")
+        await self.redis.srem("egghunt:spawn_channels", str(channel.id))
+        await self.redis.delete(f"egghunt:channel:{channel.id}:weight")
         
         if channel.id in self.spawn_channels:
             self.spawn_channels.remove(channel.id)
@@ -172,6 +184,9 @@ class EasterHunt(commands.Cog):
     @commands.has_permissions(administrator=True)
     async def listchannels(self, ctx):
         """List all channels in the spawn pool"""
+        if not self.redis:
+            return await ctx.send("❌ Redis connection is not established")
+            
         embed = discord.Embed(
             title="🥚 Easter Egg Hunt - Spawn Channels",
             color=0xffb7c5
@@ -198,7 +213,7 @@ class EasterHunt(commands.Cog):
             for channel_id in self.spawn_channels:
                 channel = self.bot.get_channel(channel_id)
                 if channel:
-                    weight = self.redis.get(f"egghunt:channel:{channel_id}:weight") or "5"
+                    weight = await self.redis.get(f"egghunt:channel:{channel_id}:weight") or "5"
                     channels_text.append(f"{channel.mention} (Weight: {weight})")
             
             embed.add_field(
@@ -219,10 +234,13 @@ class EasterHunt(commands.Cog):
     @commands.has_permissions(administrator=True)
     async def setspawnrate(self, ctx, minutes: int):
         """Set how frequently eggs spawn (in minutes)"""
+        if not self.redis:
+            return await ctx.send("❌ Redis connection is not established")
+            
         if minutes < 1:
             return await ctx.send("❌ Spawn rate must be at least 1 minute")
         
-        self.redis.set("egghunt:spawn_rate", str(minutes))
+        await self.redis.set("egghunt:spawn_rate", str(minutes))
         
         # Restart the task with new rate if active
         if self.is_active and self.spawn_eggs.is_running():
@@ -236,6 +254,9 @@ class EasterHunt(commands.Cog):
     @commands.has_permissions(administrator=True)
     async def setchannelweight(self, ctx, channel: discord.TextChannel, weight: int):
         """Set spawn weight for a specific channel (1-10)"""
+        if not self.redis:
+            return await ctx.send("❌ Redis connection is not established")
+            
         if channel.id not in self.spawn_channels and channel.id != self.main_channel:
             return await ctx.send("❌ This channel is not in the spawn pool")
             
@@ -245,14 +266,17 @@ class EasterHunt(commands.Cog):
         if channel.id == self.main_channel:
             await ctx.send("ℹ️ Main channel always has maximum weight (10)")
         else:
-            self.redis.set(f"egghunt:channel:{channel.id}:weight", str(weight))
+            await self.redis.set(f"egghunt:channel:{channel.id}:weight", str(weight))
             await ctx.send(f"✅ Set spawn weight for {channel.mention} to {weight}")
 
     @egghunt.command()
     @commands.has_permissions(administrator=True)
     async def addegg(self, ctx, name: str, emoji: str, points: int, chance: int):
         """Add a custom egg type"""
-        eggs = self.load_egg_config()
+        if not self.redis:
+            return await ctx.send("❌ Redis connection is not established")
+            
+        eggs = await self.load_egg_config()
         
         if name in eggs:
             return await ctx.send(f"❌ An egg with name '{name}' already exists")
@@ -267,7 +291,7 @@ class EasterHunt(commands.Cog):
             "chance": chance
         }
         
-        self.redis.set("egghunt:eggs", json.dumps(eggs))
+        await self.redis.set("egghunt:eggs", json.dumps(eggs))
         self.eggs = eggs
         
         await ctx.send(f"✅ Added new egg: {emoji} **{name}** ({points} points, {chance}% chance)")
@@ -276,13 +300,16 @@ class EasterHunt(commands.Cog):
     @commands.has_permissions(administrator=True)
     async def removeegg(self, ctx, name: str):
         """Remove an egg type"""
-        eggs = self.load_egg_config()
+        if not self.redis:
+            return await ctx.send("❌ Redis connection is not established")
+            
+        eggs = await self.load_egg_config()
         
         if name not in eggs:
             return await ctx.send(f"❌ No egg with name '{name}' exists")
             
         egg = eggs.pop(name)
-        self.redis.set("egghunt:eggs", json.dumps(eggs))
+        await self.redis.set("egghunt:eggs", json.dumps(eggs))
         self.eggs = eggs
         
         await ctx.send(f"✅ Removed egg: {egg['emoji']} **{name}**")
@@ -291,7 +318,10 @@ class EasterHunt(commands.Cog):
     @commands.has_permissions(administrator=True)
     async def listeggs(self, ctx):
         """List all configured egg types"""
-        eggs = self.load_egg_config()
+        if not self.redis:
+            return await ctx.send("❌ Redis connection is not established")
+            
+        eggs = await self.load_egg_config()
         
         embed = discord.Embed(
             title="🥚 Easter Egg Hunt - Egg Types",
@@ -315,7 +345,10 @@ class EasterHunt(commands.Cog):
     @commands.has_permissions(administrator=True)
     async def spawn(self, ctx, egg_type: str, channel: Optional[discord.TextChannel] = None):
         """Manually spawn an egg in a channel"""
-        eggs = self.load_egg_config()
+        if not self.redis:
+            return await ctx.send("❌ Redis connection is not established")
+            
+        eggs = await self.load_egg_config()
         
         if egg_type not in eggs:
             return await ctx.send(f"❌ No egg with name '{egg_type}' exists")
@@ -323,26 +356,8 @@ class EasterHunt(commands.Cog):
         spawn_channel = channel or ctx.channel
         egg = eggs[egg_type]
         
-        # Create a unique ID for this egg
-        egg_id = f"{int(datetime.datetime.now().timestamp())}"
-        
         # Spawn the egg
-        message = await spawn_channel.send(
-            f"{egg['emoji']} An Easter egg has appeared! Type `!findegg` to collect it!"
-        )
-        
-        # Store the egg in Redis
-        self.redis.hmset(f"egghunt:egg:{egg_id}", {
-            "message_id": str(message.id),
-            "channel_id": str(spawn_channel.id),
-            "type": egg_type,
-            "points": str(egg['points']),
-            "collected": "false",
-            "spawn_time": datetime.datetime.now().isoformat()
-        })
-        
-        # Set expiration on uncollected eggs (5 minutes)
-        self.redis.expire(f"egghunt:egg:{egg_id}", 300)
+        await self.spawn_egg_in_channel(spawn_channel, egg_type, egg)
         
         await ctx.send(f"✅ Manually spawned a {egg_type} egg in {spawn_channel.mention}")
 
@@ -350,10 +365,13 @@ class EasterHunt(commands.Cog):
     @commands.has_permissions(administrator=True)
     async def stop(self, ctx):
         """Stop the Easter Egg Hunt event"""
+        if not self.redis:
+            return await ctx.send("❌ Redis connection is not established")
+            
         if not self.is_active:
             return await ctx.send("❌ The Easter Egg Hunt is not currently active")
             
-        self.redis.set("egghunt:active", "false")
+        await self.redis.set("egghunt:active", "false")
         self.is_active = False
         
         if self.spawn_eggs.is_running():
@@ -365,6 +383,9 @@ class EasterHunt(commands.Cog):
     @commands.has_permissions(administrator=True)
     async def reset(self, ctx):
         """Reset all Easter Egg Hunt data"""
+        if not self.redis:
+            return await ctx.send("❌ Redis connection is not established")
+            
         confirm_msg = await ctx.send("⚠️ This will delete ALL egg hunt data including user scores. Type `confirm` to continue.")
         
         def check(m):
@@ -377,19 +398,19 @@ class EasterHunt(commands.Cog):
             
         # Stop the event if it's running
         if self.is_active:
-            self.redis.set("egghunt:active", "false")
+            await self.redis.set("egghunt:active", "false")
             self.is_active = False
             if self.spawn_eggs.is_running():
                 self.spawn_eggs.cancel()
         
         # Get all keys with the egghunt prefix
-        keys = self.redis.keys("egghunt:*")
+        keys = await self.redis.keys("egghunt:*")
         if keys:
             # Delete all egg hunt data
-            self.redis.delete(*keys)
+            await self.redis.delete(*keys)
             
         # Reset egg configuration to defaults
-        self.eggs = self.load_egg_config()
+        self.eggs = await self.load_egg_config()
         self.main_channel = 0
         self.spawn_channels = []
         
@@ -399,6 +420,9 @@ class EasterHunt(commands.Cog):
     @commands.has_permissions(administrator=True)
     async def announce(self, ctx, *, message: str):
         """Send an announcement to all egg hunt channels"""
+        if not self.redis:
+            return await ctx.send("❌ Redis connection is not established")
+            
         if not self.main_channel and not self.spawn_channels:
             return await ctx.send("❌ No channels configured for the Easter Egg Hunt")
             
@@ -429,17 +453,20 @@ class EasterHunt(commands.Cog):
     @commands.has_permissions(administrator=True)
     async def showdata(self, ctx):
         """Display current Redis data for the Easter Egg Hunt"""
+        if not self.redis:
+            return await ctx.send("❌ Redis connection is not established")
+            
         # Basic configuration
-        is_active = self.redis.get("egghunt:active") == "true"
-        main_channel_id = self.redis.get("egghunt:main_channel")
-        spawn_rate = self.redis.get("egghunt:spawn_rate") or "30"
+        is_active = await self.redis.get("egghunt:active") == "true"
+        main_channel_id = await self.redis.get("egghunt:main_channel")
+        spawn_rate = await self.redis.get("egghunt:spawn_rate") or "30"
         
         # Get top 5 users
-        leaderboard = self.redis.zrevrange("egghunt:leaderboard", 0, 4, withscores=True)
+        leaderboard = await self.redis.zrevrange("egghunt:leaderboard", 0, 4, withscores=True)
         
         # Get egg stats
-        eggs_found = int(self.redis.get("egghunt:stats:eggs_found") or 0)
-        eggs_spawned = int(self.redis.get("egghunt:stats:eggs_spawned") or 0)
+        eggs_found = int(await self.redis.get("egghunt:stats:eggs_found") or 0)
+        eggs_spawned = int(await self.redis.get("egghunt:stats:eggs_spawned") or 0)
         
         embed = discord.Embed(
             title="🐰 Easter Egg Hunt - Redis Data",
@@ -461,7 +488,7 @@ class EasterHunt(commands.Cog):
             f"Eggs spawned: {eggs_spawned}\n"
             f"Eggs found: {eggs_found}\n"
             f"Collection rate: {(eggs_found/eggs_spawned*100) if eggs_spawned > 0 else 0:.1f}%\n"
-            f"Total participants: {self.redis.zcard('egghunt:leaderboard')}"
+            f"Total participants: {await self.redis.zcard('egghunt:leaderboard')}"
         )
         embed.add_field(name="📈 Stats", value=stats_text, inline=False)
         
@@ -478,23 +505,26 @@ class EasterHunt(commands.Cog):
     @commands.has_permissions(administrator=True)
     async def exportdata(self, ctx):
         """Export egg hunt data as JSON"""
+        if not self.redis:
+            return await ctx.send("❌ Redis connection is not established")
+            
         # Get all keys with the egghunt prefix
-        keys = self.redis.keys("egghunt:*")
+        keys = await self.redis.keys("egghunt:*")
         data = {}
         
         for key in keys:
-            key_type = self.redis.type(key)
+            key_type = await self.redis.type(key)
             
             if key_type == "string":
-                data[key] = self.redis.get(key)
+                data[key] = await self.redis.get(key)
             elif key_type == "hash":
-                data[key] = self.redis.hgetall(key)
+                data[key] = await self.redis.hgetall(key)
             elif key_type == "list":
-                data[key] = self.redis.lrange(key, 0, -1)
+                data[key] = await self.redis.lrange(key, 0, -1)
             elif key_type == "set":
-                data[key] = list(self.redis.smembers(key))
+                data[key] = list(await self.redis.smembers(key))
             elif key_type == "zset":
-                data[key] = self.redis.zrange(key, 0, -1, withscores=True)
+                data[key] = await self.redis.zrange(key, 0, -1, withscores=True)
                 
         # Convert to JSON
         json_data = json.dumps(data, indent=2)
@@ -512,6 +542,9 @@ class EasterHunt(commands.Cog):
     @commands.has_permissions(administrator=True)
     async def egghuntstart(self, ctx):
         """Start the Easter Egg Hunt event with a festive announcement"""
+        if not self.redis:
+            return await ctx.send("❌ Redis connection is not established")
+            
         # Check if already active
         if self.is_active:
             return await ctx.send("❌ The Easter Egg Hunt is already active")
@@ -524,21 +557,21 @@ class EasterHunt(commands.Cog):
         start_date = datetime.datetime.now()
         easter_date = datetime.datetime(2025, 4, 20)
         
-        self.redis.set("egghunt:active", "true")
-        self.redis.set("egghunt:start_date", start_date.isoformat())
-        self.redis.set("egghunt:end_date", easter_date.isoformat())
+        await self.redis.set("egghunt:active", "true")
+        await self.redis.set("egghunt:start_date", start_date.isoformat())
+        await self.redis.set("egghunt:end_date", easter_date.isoformat())
         self.is_active = True
         
         # Get spawn rate or use default
-        spawn_rate = int(self.redis.get("egghunt:spawn_rate") or 30)
+        spawn_rate = int(await self.redis.get("egghunt:spawn_rate") or 30)
         
         # Create the Easter-themed embed
         embed = discord.Embed(
             title="🐰 Easter Egg Hunt Begins! 🐰",
             description=(
                 "The annual Easter Egg Hunt has begun!\n\n"
-                f"Colorful eggs will be appearing in various channels until Easter Sunday (April 20th, 2025).\n"
-                "Be the first to type `!findegg` when you see an egg to collect it!"
+                f"Easter eggs will be appearing in various channels until Easter Sunday (April 20th, 2025).\n"
+                "Be the first to react with 🐰 when you see an egg to collect it!"
             ),
             color=0xffb7c5  # Pastel pink
         )
@@ -599,10 +632,64 @@ class EasterHunt(commands.Cog):
         # Start the egg spawning background task
         self.spawn_eggs.start(minutes=spawn_rate)
 
+    async def spawn_egg_in_channel(self, channel, egg_type, egg_data):
+        """Spawn an egg in a specific channel"""
+        if not self.redis:
+            return
+            
+        # Create a unique ID for this egg
+        egg_id = f"{int(datetime.datetime.now().timestamp())}"
+        
+        # Create the egg message
+        embed = discord.Embed(
+            title=f"{egg_data['emoji']} Easter Egg Found!",
+            description=f"React with 🐰 to collect this {egg_type} egg!",
+            color=0xffb7c5
+        )
+        
+        embed.set_footer(text=f"Worth {egg_data['points']} points")
+        
+        # Randomly select an Easter-themed message
+        messages = [
+            "Hop to it! React quickly to collect this egg!",
+            "An Easter egg has appeared! React to claim it!",
+            "Look what the Easter Bunny left behind!",
+            "Quick! The Easter egg will disappear soon!",
+            "A colorful surprise has been found!",
+            "The Easter Bunny was just here..."
+        ]
+        embed.add_field(name="🐰", value=random.choice(messages))
+        
+        try:
+            message = await channel.send(embed=embed)
+            # Add the collection reaction
+            await message.add_reaction("🐰")
+            
+            # Store the egg in Redis
+            await self.redis.hmset(f"egghunt:egg:{egg_id}", {
+                "message_id": str(message.id),
+                "channel_id": str(channel.id),
+                "type": egg_type,
+                "points": str(egg_data["points"]),
+                "collected": "false",
+                "spawn_time": datetime.datetime.now().isoformat()
+            })
+            
+            # Set expiration on uncollected eggs (5 minutes)
+            await self.redis.expire(f"egghunt:egg:{egg_id}", 300)
+            
+            # Update stats
+            await self.redis.incr("egghunt:stats:eggs_spawned")
+            
+            return egg_id
+        except Exception as e:
+            print(f"Error spawning egg: {e}")
+            return None
+
     @tasks.loop(minutes=30.0)
     async def spawn_eggs(self):
         """Randomly spawns eggs in configured channels"""
-        if not self.is_active:
+        if not self.is_active or not self.redis:
             return
             
         # Select a channel to spawn in
@@ -610,7 +697,7 @@ class EasterHunt(commands.Cog):
             return
             
         channels = [self.main_channel] + self.spawn_channels
-        weights = [10] + [int(self.redis.get(f"egghunt:channel:{c}:weight") or 5) for c in self.spawn_channels]
+        weights = [10] + [int(await self.redis.get(f"egghunt:channel:{c}:weight") or 5) for c in self.spawn_channels]
         
         channel_id = random.choices(channels, weights=weights, k=1)[0]
         channel = self.bot.get_channel(channel_id)
@@ -624,29 +711,8 @@ class EasterHunt(commands.Cog):
         egg_type = random.choices(egg_types, weights=egg_chances, k=1)[0]
         egg_data = self.eggs[egg_type]
         
-        # Create a unique ID for this egg
-        egg_id = f"{int(datetime.datetime.now().timestamp())}"
-        
-        # Spawn the egg
-        message = await channel.send(
-            f"{egg_data['emoji']} An Easter egg has appeared! Type `!findegg` to collect it!"
-        )
-        
-        # Store the egg in Redis
-        self.redis.hmset(f"egghunt:egg:{egg_id}", {
-            "message_id": str(message.id),
-            "channel_id": str(channel.id),
-            "type": egg_type,
-            "points": str(egg_data["points"]),
-            "collected": "false",
-            "spawn_time": datetime.datetime.now().isoformat()
-        })
-        
-        # Set expiration on uncollected eggs (5 minutes)
-        self.redis.expire(f"egghunt:egg:{egg_id}", 300)
-        
-        # Update stats
-        self.redis.incr("egghunt:stats:eggs_spawned")
+        # Spawn the egg in the selected channel
+        await self.spawn_egg_in_channel(channel, egg_type, egg_data)
 
     @spawn_eggs.before_loop
     async def before_spawn(self):
@@ -654,68 +720,18 @@ class EasterHunt(commands.Cog):
         await self.bot.wait_until_ready()
 
     @commands.command()
-    async def findegg(self, ctx):
-        """Command to collect a spawned egg"""
-        # Check if event is active
-        if not self.is_active:
-            return
-            
-        # Find the most recent egg spawned in this channel
-        channel_eggs = []
-        for egg_id in self.redis.keys("egghunt:egg:*"):
-            egg_data = self.redis.hgetall(egg_id)
-            if egg_data.get("channel_id") == str(ctx.channel.id) and egg_data.get("collected") == "false":
-                channel_eggs.append((egg_id, egg_data))
-                
-        if not channel_eggs:
-            return  # No eggs to collect
-            
-        # Sort by spawn time (most recent first)
-        channel_eggs.sort(key=lambda x: x[1].get("spawn_time", ""), reverse=True)
-        egg_id, egg_data = channel_eggs[0]
-        
-        # Mark as collected
-        self.redis.hset(egg_id, "collected", "true")
-        self.redis.hset(egg_id, "collected_by", str(ctx.author.id))
-        self.redis.hset(egg_id, "collected_at", datetime.datetime.now().isoformat())
-        
-        # Award points to user
-        points = int(egg_data.get("points", 0))
-        self.redis.zincrby("egghunt:leaderboard", points, str(ctx.author.id))
-        
-        # Add to user's egg collection
-        egg_type = egg_data.get("type", "unknown")
-        self.redis.hincrby(f"egghunt:user:{ctx.author.id}:eggs", egg_type, 1)
-        
-        # Update stats
-        self.redis.incr("egghunt:stats:eggs_found")
-        
-        # Get user's total points
-        total_points = int(self.redis.zscore("egghunt:leaderboard", str(ctx.author.id)) or 0)
-        
-        # Get the egg's emoji
-        egg_emoji = self.eggs.get(egg_type, {}).get("emoji", "🥚")
-        
-        # Edit the original egg message
-        try:
-            message = await ctx.channel.fetch_message(int(egg_data.get("message_id", 0)))
-            await message.edit(content=f"{egg_emoji} This egg was collected by {ctx.author.mention}! (+{points} points)")
-        except:
-            pass  # Message might not exist anymore
-            
-        # Send confirmation to user
-        await ctx.send(f"🎉 {ctx.author.mention} found a **{egg_type}** egg! +{points} points (Total: {total_points})")
-
-    @commands.command()
     async def eggbasket(self, ctx, member: Optional[discord.Member] = None):
         """View your collected eggs and total points"""
+        if not self.redis:
+            return await ctx.send("❌ Redis connection is not established")
+            
         target = member or ctx.author
         
         # Get user's points
-        points = int(self.redis.zscore("egghunt:leaderboard", str(target.id)) or 0)
+        points = int(await self.redis.zscore("egghunt:leaderboard", str(target.id)) or 0)
         
         # Get user's egg collection
-        eggs_collected = self.redis.hgetall(f"egghunt:user:{target.id}:eggs") or {}
+        eggs_collected = await self.redis.hgetall(f"egghunt:user:{target.id}:eggs") or {}
         
         # Create embed
         embed = discord.Embed(
@@ -744,11 +760,11 @@ class EasterHunt(commands.Cog):
             )
         
         # Add rank information
-        rank = self.redis.zrevrank("egghunt:leaderboard", str(target.id))
+        rank = await self.redis.zrevrank("egghunt:leaderboard", str(target.id))
         if rank is not None:
             embed.add_field(
                 name="🏆 Current Rank",
-                value=f"#{rank + 1} of {self.redis.zcard('egghunt:leaderboard')} participants",
+                value=f"#{rank + 1} of {await self.redis.zcard('egghunt:leaderboard')} participants",
                 inline=False
             )
             
@@ -757,8 +773,11 @@ class EasterHunt(commands.Cog):
     @commands.command()
     async def eggleaderboard(self, ctx):
         """View the top egg collectors"""
+        if not self.redis:
+            return await ctx.send("❌ Redis connection is not established")
+            
         # Get top 10 users
-        leaderboard = self.redis.zrevrange("egghunt:leaderboard", 0, 9, withscores=True)
+        leaderboard = await self.redis.zrevrange("egghunt:leaderboard", 0, 9, withscores=True)
         
         if not leaderboard:
             return await ctx.send("🥚 No eggs have been collected yet!")
@@ -770,7 +789,7 @@ class EasterHunt(commands.Cog):
         )
         
         # Get total eggs found
-        total_eggs = int(self.redis.get("egghunt:stats:eggs_found") or 0)
+        total_eggs = int(await self.redis.get("egghunt:stats:eggs_found") or 0)
         
         for i, (user_id, score) in enumerate(leaderboard):
             # Get user object
@@ -788,19 +807,22 @@ class EasterHunt(commands.Cog):
             )
             
         # Add footer with event stats
-        embed.set_footer(text=f"Total eggs found: {total_eggs} | Participants: {self.redis.zcard('egghunt:leaderboard')}")
+        embed.set_footer(text=f"Total eggs found: {total_eggs} | Participants: {await self.redis.zcard('egghunt:leaderboard')}")
         
         await ctx.send(embed=embed)
         
     @commands.command()
     async def eggstats(self, ctx):
         """View overall Easter Egg Hunt statistics"""
+        if not self.redis:
+            return await ctx.send("❌ Redis connection is not established")
+            
         # Check if event is active
-        is_active = self.redis.get("egghunt:active") == "true"
+        is_active = await self.redis.get("egghunt:active") == "true"
         
         # Get event dates
-        start_date = self.redis.get("egghunt:start_date")
-        end_date = self.redis.get("egghunt:end_date")
+        start_date = await self.redis.get("egghunt:start_date")
+        end_date = await self.redis.get("egghunt:end_date")
         
         if start_date:
             try:
@@ -821,8 +843,8 @@ class EasterHunt(commands.Cog):
             end_str = "April 20, 2025"
             
         # Get egg stats
-        eggs_spawned = int(self.redis.get("egghunt:stats:eggs_spawned") or 0)
-        eggs_found = int(self.redis.get("egghunt:stats:eggs_found") or 0)
+        eggs_spawned = int(await self.redis.get("egghunt:stats:eggs_spawned") or 0)
+        eggs_found = int(await self.redis.get("egghunt:stats:eggs_found") or 0)
         
         # Calculate remaining time if active
         if is_active and end_date:
@@ -865,7 +887,7 @@ class EasterHunt(commands.Cog):
         )
         
         # Add participant stats
-        participants = self.redis.zcard("egghunt:leaderboard")
+        participants = await self.redis.zcard("egghunt:leaderboard")
         embed.add_field(
             name="👥 Participants",
             value=f"Total: {participants}",
@@ -874,8 +896,8 @@ class EasterHunt(commands.Cog):
         
         # Add egg type breakdown
         egg_types = {}
-        for user_id in self.redis.zrange("egghunt:leaderboard", 0, -1):
-            user_eggs = self.redis.hgetall(f"egghunt:user:{user_id}:eggs") or {}
+        for user_id in await self.redis.zrange("egghunt:leaderboard", 0, -1):
+            user_eggs = await self.redis.hgetall(f"egghunt:user:{user_id}:eggs") or {}
             for egg_type, count in user_eggs.items():
                 egg_types[egg_type] = egg_types.get(egg_type, 0) + int(count)
                 
@@ -902,7 +924,7 @@ class EasterHunt(commands.Cog):
             return
             
         # Check if event is active
-        if not self.is_active:
+        if not self.is_active or not self.redis:
             return
             
         # Check if message is in a spawn channel
@@ -918,39 +940,107 @@ class EasterHunt(commands.Cog):
             egg_type = random.choices(egg_types, weights=egg_chances, k=1)[0]
             egg_data = self.eggs[egg_type]
             
-            # Create a unique ID for this egg
-            egg_id = f"{int(datetime.datetime.now().timestamp())}"
-            
             # Spawn the egg
-            egg_msg = await message.channel.send(
-                f"{egg_data['emoji']} An Easter egg has appeared! Type `!findegg` to collect it!"
+            await self.spawn_egg_in_channel(message.channel, egg_type, egg_data)
+    
+    @commands.Cog.listener()
+    async def on_reaction_add(self, reaction, user):
+        """Listen for reactions to collect eggs"""
+        # Ignore bot reactions
+        if user.bot:
+            return
+            
+        # Check if event is active
+        if not self.is_active or not self.redis:
+            return
+            
+        # Check if this is an egg message
+        if reaction.emoji != "🐰":
+            return
+            
+        # Find egg data for this message
+        message_id = str(reaction.message.id)
+        channel_id = str(reaction.message.channel.id)
+        
+        # Find egg by message ID
+        egg_keys = await self.redis.keys("egghunt:egg:*")
+        egg_id = None
+        
+        for key in egg_keys:
+            egg_msg_id = await self.redis.hget(key, "message_id")
+            if egg_msg_id == message_id:
+                egg_id = key
+                break
+                
+        if not egg_id:
+            return  # Not an egg message
+            
+        # Check if egg is already collected
+        collected = await self.redis.hget(egg_id, "collected") == "true"
+        if collected:
+            return  # Already collected
+            
+        # Mark as collected
+        await self.redis.hset(egg_id, "collected", "true")
+        await self.redis.hset(egg_id, "collected_by", str(user.id))
+        await self.redis.hset(egg_id, "collected_at", datetime.datetime.now().isoformat())
+        
+        # Award points to user
+        egg_type = await self.redis.hget(egg_id, "type")
+        points = int(await self.redis.hget(egg_id, "points") or 0)
+        await self.redis.zincrby("egghunt:leaderboard", points, str(user.id))
+        
+        # Add to user's egg collection
+        await self.redis.hincrby(f"egghunt:user:{user.id}:eggs", egg_type, 1)
+        
+        # Update stats
+        await self.redis.incr("egghunt:stats:eggs_found")
+        
+        # Get user's total points
+        total_points = int(await self.redis.zscore("egghunt:leaderboard", str(user.id)) or 0)
+        
+        # Get the egg's emoji
+        egg_emoji = self.eggs.get(egg_type, {}).get("emoji", "🥚")
+        
+        # Edit the original egg message
+        try:
+            # Create updated embed with collection information
+            embed = discord.Embed(
+                title=f"{egg_emoji} Easter Egg Collected!",
+                description=f"This egg was found by {user.mention}!",
+                color=0xffb7c5
             )
             
-            # Store the egg in Redis
-            self.redis.hmset(f"egghunt:egg:{egg_id}", {
-                "message_id": str(egg_msg.id),
-                "channel_id": str(message.channel.id),
-                "type": egg_type,
-                "points": str(egg_data["points"]),
-                "collected": "false",
-                "spawn_time": datetime.datetime.now().isoformat()
-            })
+            embed.add_field(
+                name="💰 Points",
+                value=f"+{points} points\n(Total: {total_points})"
+            )
             
-            # Set expiration on uncollected eggs (5 minutes)
-            self.redis.expire(f"egghunt:egg:{egg_id}", 300)
+            embed.set_footer(text=f"Egg type: {egg_type}")
             
-            # Update stats
-            self.redis.incr("egghunt:stats:eggs_spawned")
+            await reaction.message.edit(embed=embed)
             
-        async def cog_unload(self):
-            """Clean up when cog is unloaded"""
-            if self.spawn_eggs.is_running():
-                self.spawn_eggs.cancel()
+            # Remove all reactions
+            await reaction.message.clear_reactions()
             
-            # Close Redis connection if it exists
-            if self.redis:
-                await self.redis.close()
-
+        except Exception as e:
+            print(f"Error updating egg message: {e}")
+            
+        # Send confirmation to channel
+        await reaction.message.channel.send(
+            f"🎉 {user.mention} found a **{egg_type}** egg! +{points} points (Total: {total_points})",
+            delete_after=10
+        )
+        
+    async def cog_unload(self):
+        """Clean up when cog is unloaded"""
+        if self.spawn_eggs.is_running():
+            self.spawn_eggs.cancel()
+        
+        # Close Redis connection if it exists
+        if self.redis:
+            await self.redis.close()
+            
 async def setup(bot):
     """Add the Easter Hunt cog to the bot."""
     # Create cog instance with Redis URL
