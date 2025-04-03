@@ -1229,5 +1229,5 @@ class EasterHunt(commands.Cog):
 async def setup(bot):
     """Add the Easter Hunt cog to the bot."""
     # Create cog instance with Redis URL
-    redis_url = "redis://:onepiece0212!@localhost:6379/0"  # MODIFY THIS LINE AS NEEDED
+    redis_url = "redis://:onepiece0212!@localhost:6379/0"
     await bot.add_cog(EasterHunt(bot, redis_url))
