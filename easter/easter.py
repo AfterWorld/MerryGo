@@ -5,7 +5,14 @@ import json
 import asyncio
 import os
 import random
+import logging
 from typing import Optional, List, Dict, Union
+
+# Set up logging
+logging.basicConfig(
+    level=logging.INFO,
+    format='%(asctime)s - %(name)s - %(levelname)s - %(message)s'
+)
 
 class EasterHunt(commands.Cog):
     """Easter Egg Hunt event cog for Discord.py bot"""
@@ -24,15 +31,23 @@ class EasterHunt(commands.Cog):
             "legendary": {"emoji": "✨", "points": 500, "chance": 5}
         }
         
+        # Logger for this cog
+        self.logger = logging.getLogger('easterhunt_cog')
+        
     async def cog_load(self):
         """Initialize Redis connection when cog is loaded"""
+        # Log the Redis URL being used (without the password)
+        sanitized_url = self.redis_url.replace("onepiece0212!", "********")
+        self.logger.info(f"Attempting to connect to Redis with URL: {sanitized_url}")
+        
         try:
             # Use redis.asyncio for Discord.py 2.0
-            import redis.asyncio as aioredis
-            self.redis = aioredis.from_url(self.redis_url, decode_responses=True)
+            import redis.asyncio as redis
+            self.redis = await redis.from_url(self.redis_url, decode_responses=True)
             
-            # Test the connection
+            # Test connection
             await self.redis.ping()
+            self.logger.info(f"Successfully connected to Redis")
             
             # Now load configuration from Redis
             is_active = await self.redis.get("egghunt:active")
@@ -56,12 +71,11 @@ class EasterHunt(commands.Cog):
                 minutes = int(spawn_rate or 30)
                 self.spawn_eggs.start(minutes=minutes)
                 
-            print("EasterHunt: Redis connection established successfully")
         except ImportError:
-            print("EasterHunt: Failed to import redis.asyncio module. Please install it with: pip install redis")
+            self.logger.error("Failed to import redis.asyncio module. Please install it with: pip install redis")
             self.redis = None
         except Exception as e:
-            print(f"EasterHunt: Error connecting to Redis: {e}")
+            self.logger.error(f"Error connecting to Redis: {e}")
             self.redis = None
             
     # Helper method to ensure Redis is connected
@@ -80,17 +94,18 @@ class EasterHunt(commands.Cog):
         except:
             # Try to reconnect
             try:
-                import redis.asyncio as aioredis
-                self.redis = aioredis.from_url(self.redis_url, decode_responses=True)
+                import redis.asyncio as redis
+                self.redis = await redis.from_url(self.redis_url, decode_responses=True)
                 await self.redis.ping()
                 return True
-            except:
+            except Exception as e:
+                self.logger.error(f"Failed to reconnect to Redis: {e}")
                 return False
             
     # Helper method for loading egg configuration
     async def load_egg_config(self) -> Dict:
         """Load egg configuration from Redis or set defaults"""
-        if not self.redis:
+        if not await self.ensure_redis():
             return self.eggs
             
         egg_config = await self.redis.get("egghunt:eggs")
@@ -171,8 +186,8 @@ class EasterHunt(commands.Cog):
     @commands.has_permissions(administrator=True)
     async def mainchannel(self, ctx, channel: discord.TextChannel):
         """Set the main channel for egg spawns"""
-        if not self.redis:
-            return await ctx.send("❌ Redis connection is not established")
+        if not await self.ensure_redis():
+            return await ctx.send("❌ Redis connection could not be established")
             
         self.main_channel = channel.id
         await self.redis.set("egghunt:main_channel", str(channel.id))
@@ -182,8 +197,8 @@ class EasterHunt(commands.Cog):
     @commands.has_permissions(administrator=True)
     async def includechannel(self, ctx, channel: discord.TextChannel):
         """Add a channel to the spawn pool"""
-        if not self.redis:
-            return await ctx.send("❌ Redis connection is not established")
+        if not await self.ensure_redis():
+            return await ctx.send("❌ Redis connection could not be established")
             
         if channel.id == self.main_channel:
             return await ctx.send("❌ This channel is already set as the main channel.")
@@ -197,8 +212,8 @@ class EasterHunt(commands.Cog):
     @commands.has_permissions(administrator=True)
     async def removechannel(self, ctx, channel: discord.TextChannel):
         """Remove a channel from the spawn pool"""
-        if not self.redis:
-            return await ctx.send("❌ Redis connection is not established")
+        if not await self.ensure_redis():
+            return await ctx.send("❌ Redis connection could not be established")
             
         if channel.id == self.main_channel:
             return await ctx.send("❌ You cannot remove the main channel. Use `!egghunt mainchannel` to change it.")
@@ -215,8 +230,8 @@ class EasterHunt(commands.Cog):
     @commands.has_permissions(administrator=True)
     async def listchannels(self, ctx):
         """List all channels in the spawn pool"""
-        if not self.redis:
-            return await ctx.send("❌ Redis connection is not established")
+        if not await self.ensure_redis():
+            return await ctx.send("❌ Redis connection could not be established")
             
         embed = discord.Embed(
             title="🥚 Easter Egg Hunt - Spawn Channels",
@@ -265,8 +280,8 @@ class EasterHunt(commands.Cog):
     @commands.has_permissions(administrator=True)
     async def setspawnrate(self, ctx, minutes: int):
         """Set how frequently eggs spawn (in minutes)"""
-        if not self.redis:
-            return await ctx.send("❌ Redis connection is not established")
+        if not await self.ensure_redis():
+            return await ctx.send("❌ Redis connection could not be established")
             
         if minutes < 1:
             return await ctx.send("❌ Spawn rate must be at least 1 minute")
@@ -285,8 +300,8 @@ class EasterHunt(commands.Cog):
     @commands.has_permissions(administrator=True)
     async def setchannelweight(self, ctx, channel: discord.TextChannel, weight: int):
         """Set spawn weight for a specific channel (1-10)"""
-        if not self.redis:
-            return await ctx.send("❌ Redis connection is not established")
+        if not await self.ensure_redis():
+            return await ctx.send("❌ Redis connection could not be established")
             
         if channel.id not in self.spawn_channels and channel.id != self.main_channel:
             return await ctx.send("❌ This channel is not in the spawn pool")
@@ -304,8 +319,8 @@ class EasterHunt(commands.Cog):
     @commands.has_permissions(administrator=True)
     async def addegg(self, ctx, name: str, emoji: str, points: int, chance: int):
         """Add a custom egg type"""
-        if not self.redis:
-            return await ctx.send("❌ Redis connection is not established")
+        if not await self.ensure_redis():
+            return await ctx.send("❌ Redis connection could not be established")
             
         eggs = await self.load_egg_config()
         
@@ -331,8 +346,8 @@ class EasterHunt(commands.Cog):
     @commands.has_permissions(administrator=True)
     async def removeegg(self, ctx, name: str):
         """Remove an egg type"""
-        if not self.redis:
-            return await ctx.send("❌ Redis connection is not established")
+        if not await self.ensure_redis():
+            return await ctx.send("❌ Redis connection could not be established")
             
         eggs = await self.load_egg_config()
         
@@ -349,8 +364,8 @@ class EasterHunt(commands.Cog):
     @commands.has_permissions(administrator=True)
     async def listeggs(self, ctx):
         """List all configured egg types"""
-        if not self.redis:
-            return await ctx.send("❌ Redis connection is not established")
+        if not await self.ensure_redis():
+            return await ctx.send("❌ Redis connection could not be established")
             
         eggs = await self.load_egg_config()
         
@@ -376,8 +391,8 @@ class EasterHunt(commands.Cog):
     @commands.has_permissions(administrator=True)
     async def spawn(self, ctx, egg_type: str, channel: Optional[discord.TextChannel] = None):
         """Manually spawn an egg in a channel"""
-        if not self.redis:
-            return await ctx.send("❌ Redis connection is not established")
+        if not await self.ensure_redis():
+            return await ctx.send("❌ Redis connection could not be established")
             
         eggs = await self.load_egg_config()
         
@@ -396,8 +411,8 @@ class EasterHunt(commands.Cog):
     @commands.has_permissions(administrator=True)
     async def stop(self, ctx):
         """Stop the Easter Egg Hunt event"""
-        if not self.redis:
-            return await ctx.send("❌ Redis connection is not established")
+        if not await self.ensure_redis():
+            return await ctx.send("❌ Redis connection could not be established")
             
         if not self.is_active:
             return await ctx.send("❌ The Easter Egg Hunt is not currently active")
@@ -414,8 +429,8 @@ class EasterHunt(commands.Cog):
     @commands.has_permissions(administrator=True)
     async def reset(self, ctx):
         """Reset all Easter Egg Hunt data"""
-        if not self.redis:
-            return await ctx.send("❌ Redis connection is not established")
+        if not await self.ensure_redis():
+            return await ctx.send("❌ Redis connection could not be established")
             
         confirm_msg = await ctx.send("⚠️ This will delete ALL egg hunt data including user scores. Type `confirm` to continue.")
         
@@ -451,8 +466,8 @@ class EasterHunt(commands.Cog):
     @commands.has_permissions(administrator=True)
     async def announce(self, ctx, *, message: str):
         """Send an announcement to all egg hunt channels"""
-        if not self.redis:
-            return await ctx.send("❌ Redis connection is not established")
+        if not await self.ensure_redis():
+            return await ctx.send("❌ Redis connection could not be established")
             
         if not self.main_channel and not self.spawn_channels:
             return await ctx.send("❌ No channels configured for the Easter Egg Hunt")
@@ -484,8 +499,8 @@ class EasterHunt(commands.Cog):
     @commands.has_permissions(administrator=True)
     async def showdata(self, ctx):
         """Display current Redis data for the Easter Egg Hunt"""
-        if not self.redis:
-            return await ctx.send("❌ Redis connection is not established")
+        if not await self.ensure_redis():
+            return await ctx.send("❌ Redis connection could not be established")
             
         # Basic configuration
         is_active = await self.redis.get("egghunt:active") == "true"
@@ -536,8 +551,8 @@ class EasterHunt(commands.Cog):
     @commands.has_permissions(administrator=True)
     async def exportdata(self, ctx):
         """Export egg hunt data as JSON"""
-        if not self.redis:
-            return await ctx.send("❌ Redis connection is not established")
+        if not await self.ensure_redis():
+            return await ctx.send("❌ Redis connection could not be established")
             
         # Get all keys with the egghunt prefix
         keys = await self.redis.keys("egghunt:*")
@@ -568,13 +583,137 @@ class EasterHunt(commands.Cog):
             f.write(json_data)
             
         await ctx.send("✅ Data export complete", file=discord.File(filename))
+        
+    @egghunt.command()
+    @commands.has_permissions(administrator=True)
+    async def test_redis(self, ctx):
+        """Test the Redis connection and display information"""
+        await ctx.typing()
+        
+        embed = discord.Embed(
+            title="Redis Connection Test",
+            description="Testing connection to Redis server...",
+            color=0xffb7c5
+        )
+        
+        # First, show what URL we're using (with password hidden)
+        redis_url_parts = self.redis_url.split('@')
+        if len(redis_url_parts) > 1:
+            # There's an @ symbol, so we have auth info
+            auth_parts = redis_url_parts[0].split(':')
+            if len(auth_parts) >= 3:  # redis://user:pass format
+                # Hide the password
+                hidden_url = f"{auth_parts[0]}:{auth_parts[1]}:***@{redis_url_parts[1]}"
+            else:
+                hidden_url = f"{auth_parts[0]}:***@{redis_url_parts[1]}"
+        else:
+            hidden_url = self.redis_url
+            
+        embed.add_field(
+            name="Redis URL", 
+            value=f"`{hidden_url}`", 
+            inline=False
+        )
+        
+        # Test the connection
+        try:
+            # Create a fresh connection for testing
+            import redis.asyncio as redis
+            test_redis = await redis.from_url(self.redis_url, decode_responses=True)
+            
+            # Try to ping
+            ping_result = await test_redis.ping()
+            
+            if ping_result:
+                embed.add_field(
+                    name="Connection Status",
+                    value="✅ Successfully connected to Redis!",
+                    inline=False
+                )
+                embed.color = discord.Color.green()
+            else:
+                embed.add_field(
+                    name="Connection Status",
+                    value="❌ Ping failed with an unknown error",
+                    inline=False
+                )
+                embed.color = discord.Color.red()
+                
+            # Try a simple set/get operation
+            try:
+                test_key = f"egghunt:test:{ctx.guild.id}:{ctx.author.id}"
+                test_value = f"Test from {ctx.author.name} at {datetime.datetime.now().isoformat()}"
+                
+                # Try setting a value
+                await test_redis.set(test_key, test_value, ex=60)  # Expire after 60 seconds
+                
+                # Try getting it back
+                retrieved = await test_redis.get(test_key)
+                
+                if retrieved == test_value:
+                    embed.add_field(
+                        name="Data Operations",
+                        value="✅ Successfully stored and retrieved test data",
+                        inline=False
+                    )
+                else:
+                    embed.add_field(
+                        name="Data Operations",
+                        value=f"❌ Data retrieval failed. Expected: `{test_value}`, Got: `{retrieved}`",
+                        inline=False
+                    )
+            except Exception as e:
+                embed.add_field(
+                    name="Data Operations",
+                    value=f"❌ Error during data test: `{str(e)}`",
+                    inline=False
+                )
+                
+            # Close test connection
+            await test_redis.close()
+            
+        except Exception as e:
+            embed.add_field(
+                name="Connection Error",
+                value=f"❌ Failed to connect: `{str(e)}`",
+                inline=False
+            )
+            embed.color = discord.Color.red()
+            
+            # Add some troubleshooting suggestions based on the error
+            if "NOAUTH" in str(e):
+                embed.add_field(
+                    name="Troubleshooting",
+                    value="Authentication error. Check your Redis password and username.",
+                    inline=False
+                )
+            elif "Connection refused" in str(e):
+                embed.add_field(
+                    name="Troubleshooting",
+                    value="Connection refused. Make sure Redis is running and the host/port are correct.",
+                    inline=False
+                )
+            elif "Timeout" in str(e):
+                embed.add_field(
+                    name="Troubleshooting",
+                    value="Connection timed out. Check network connectivity to the Redis server.",
+                    inline=False
+                )
+            else:
+                embed.add_field(
+                    name="Troubleshooting",
+                    value="Unknown error. Check Redis logs for more information.",
+                    inline=False
+                )
+        
+        await ctx.send(embed=embed)
 
     @commands.command()
     @commands.has_permissions(administrator=True)
     async def egghuntstart(self, ctx):
         """Start the Easter Egg Hunt event with a festive announcement"""
-        if not self.redis:
-            return await ctx.send("❌ Redis connection is not established")
+        if not await self.ensure_redis():
+            return await ctx.send("❌ Redis connection could not be established")
             
         # Check if already active
         if self.is_active:
@@ -596,12 +735,12 @@ class EasterHunt(commands.Cog):
         # Get spawn rate or use default
         spawn_rate = int(await self.redis.get("egghunt:spawn_rate") or 30)
         
-        # Create the Easter-themed embed
+       # Create the Easter-themed embed
         embed = discord.Embed(
             title="🐰 Easter Egg Hunt Begins! 🐰",
             description=(
                 "The annual Easter Egg Hunt has begun!\n\n"
-                f"Easter eggs will be appearing in various channels until Easter Sunday (April 20th, 2025).\n"
+                f"Colorful eggs will be appearing in various channels until Easter Sunday (April 20th, 2025).\n"
                 "Be the first to react with 🐰 when you see an egg to collect it!"
             ),
             color=0xffb7c5  # Pastel pink
@@ -665,8 +804,9 @@ class EasterHunt(commands.Cog):
 
     async def spawn_egg_in_channel(self, channel, egg_type, egg_data):
         """Spawn an egg in a specific channel"""
-        if not self.redis:
-            return
+        if not await self.ensure_redis():
+            self.logger.error("Cannot spawn egg: Redis not connected")
+            return None
             
         # Create a unique ID for this egg
         egg_id = f"{int(datetime.datetime.now().timestamp())}"
@@ -714,13 +854,18 @@ class EasterHunt(commands.Cog):
             
             return egg_id
         except Exception as e:
-            print(f"Error spawning egg: {e}")
+            self.logger.error(f"Error spawning egg: {e}")
             return None
 
     @tasks.loop(minutes=30.0)
     async def spawn_eggs(self):
         """Randomly spawns eggs in configured channels"""
-        if not self.is_active or not self.redis:
+        if not self.is_active:
+            return
+            
+        # Try to reconnect Redis if needed
+        if not await self.ensure_redis():
+            self.logger.error("Skipping egg spawn: Redis not connected")
             return
             
         # Select a channel to spawn in
@@ -753,8 +898,8 @@ class EasterHunt(commands.Cog):
     @commands.command()
     async def eggbasket(self, ctx, member: Optional[discord.Member] = None):
         """View your collected eggs and total points"""
-        if not self.redis:
-            return await ctx.send("❌ Redis connection is not established")
+        if not await self.ensure_redis():
+            return await ctx.send("❌ Redis connection could not be established")
             
         target = member or ctx.author
         
@@ -804,8 +949,8 @@ class EasterHunt(commands.Cog):
     @commands.command()
     async def eggleaderboard(self, ctx):
         """View the top egg collectors"""
-        if not self.redis:
-            return await ctx.send("❌ Redis connection is not established")
+        if not await self.ensure_redis():
+            return await ctx.send("❌ Redis connection could not be established")
             
         # Get top 10 users
         leaderboard = await self.redis.zrevrange("egghunt:leaderboard", 0, 9, withscores=True)
@@ -845,8 +990,8 @@ class EasterHunt(commands.Cog):
     @commands.command()
     async def eggstats(self, ctx):
         """View overall Easter Egg Hunt statistics"""
-        if not self.redis:
-            return await ctx.send("❌ Redis connection is not established")
+        if not await self.ensure_redis():
+            return await ctx.send("❌ Redis connection could not be established")
             
         # Check if event is active
         is_active = await self.redis.get("egghunt:active") == "true"
@@ -955,7 +1100,11 @@ class EasterHunt(commands.Cog):
             return
             
         # Check if event is active
-        if not self.is_active or not self.redis:
+        if not self.is_active:
+            return
+            
+        # Try to reconnect Redis if needed
+        if not await self.ensure_redis():
             return
             
         # Check if message is in a spawn channel
@@ -982,7 +1131,11 @@ class EasterHunt(commands.Cog):
             return
             
         # Check if event is active
-        if not self.is_active or not self.redis:
+        if not self.is_active:
+            return
+            
+        # Try to reconnect Redis if needed
+        if not await self.ensure_redis():
             return
             
         # Check if this is an egg message
@@ -1055,7 +1208,7 @@ class EasterHunt(commands.Cog):
             await reaction.message.clear_reactions()
             
         except Exception as e:
-            print(f"Error updating egg message: {e}")
+            self.logger.error(f"Error updating egg message: {e}")
             
         # Send confirmation to channel
         await reaction.message.channel.send(
@@ -1071,6 +1224,7 @@ class EasterHunt(commands.Cog):
         # Close Redis connection if it exists
         if self.redis:
             await self.redis.close()
+            self.logger.info("Closed Redis connection on cog unload")
             
 async def setup(bot):
     """Add the Easter Hunt cog to the bot."""
