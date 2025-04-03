@@ -1,32 +1,63 @@
 import discord
 from discord.ext import commands, tasks
 import datetime
-import redis
-import random
 import json
 import asyncio
+import os
 from typing import Optional, List, Dict, Union
 
 class EasterHunt(commands.Cog):
     """Easter Egg Hunt event cog for Discord.py bot"""
 
-    def __init__(self, bot):
+    def __init__(self, bot, redis_url=None):
         self.bot = bot
-        self.redis = redis.Redis.from_url("redis://localhost:6379/0", decode_responses=True)
-        self.is_active = self.redis.get("egghunt:active") == "true"
-        self.main_channel = int(self.redis.get("egghunt:main_channel") or 0)
-        self.spawn_channels = [int(c) for c in self.redis.smembers("egghunt:spawn_channels") or []]
+        # Redis connection with authentication
+        self.redis_url = redis_url or os.getenv("REDIS_URL", "redis://:onepiece0212!@localhost:6379/0")
+        self.redis = None  # Will be initialized in cog_load
+        self.is_active = False
+        self.main_channel = 0
+        self.spawn_channels = []
+        self.eggs = {
+            "common": {"emoji": "🥚", "points": 50, "chance": 70},
+            "rare": {"emoji": "🐣", "points": 200, "chance": 25},
+            "legendary": {"emoji": "✨🥚✨", "points": 500, "chance": 5}
+        }
         
-        # Load egg configurations or set defaults
-        self.eggs = self.load_egg_config()
-        
-        # Start spawning task if event is active
-        if self.is_active:
-            self.spawn_eggs.start()
-
-    def load_egg_config(self) -> Dict:
+    async def cog_load(self):
+        """Initialize Redis connection when cog is loaded"""
+        try:
+            # Use aioredis for async Redis operations
+            import aioredis
+            self.redis = await aioredis.from_url(self.redis_url, decode_responses=True)
+            
+            # Load configuration from Redis
+            self.is_active = (await self.redis.get("egghunt:active")) == "true"
+            main_channel = await self.redis.get("egghunt:main_channel")
+            self.main_channel = int(main_channel) if main_channel else 0
+            
+            # Load spawn channels
+            channels = await self.redis.smembers("egghunt:spawn_channels")
+            self.spawn_channels = [int(c) for c in channels] if channels else []
+            
+            # Load egg configurations
+            egg_config = await self.redis.get("egghunt:eggs")
+            if egg_config:
+                self.eggs = json.loads(egg_config)
+                
+            # Start spawning task if event is active
+            if self.is_active:
+                spawn_rate = await self.redis.get("egghunt:spawn_rate") 
+                self.spawn_eggs.start(minutes=int(spawn_rate or 30))
+                
+            print("EasterHunt: Redis connection established")
+        except Exception as e:
+            print(f"EasterHunt: Error connecting to Redis: {e}")
+            self.redis = None
+            
+    # Helper method for loading egg configuration
+    async def load_egg_config(self) -> Dict:
         """Load egg configuration from Redis or set defaults"""
-        egg_config = self.redis.get("egghunt:eggs")
+        egg_config = await self.redis.get("egghunt:eggs")
         if egg_config:
             return json.loads(egg_config)
         else:
@@ -36,7 +67,7 @@ class EasterHunt(commands.Cog):
                 "rare": {"emoji": "🐣", "points": 200, "chance": 25},
                 "legendary": {"emoji": "✨🥚✨", "points": 500, "chance": 5}
             }
-            self.redis.set("egghunt:eggs", json.dumps(default_eggs))
+            await self.redis.set("egghunt:eggs", json.dumps(default_eggs))
             return default_eggs
 
     @commands.group(invoke_without_command=True)
@@ -909,10 +940,17 @@ class EasterHunt(commands.Cog):
             # Update stats
             self.redis.incr("egghunt:stats:eggs_spawned")
             
-    async def cog_unload(self):
-        """Clean up when cog is unloaded"""
-        if self.spawn_eggs.is_running():
-            self.spawn_eggs.cancel()
+        async def cog_unload(self):
+            """Clean up when cog is unloaded"""
+            if self.spawn_eggs.is_running():
+                self.spawn_eggs.cancel()
+            
+            # Close Redis connection if it exists
+            if self.redis:
+                await self.redis.close()
 
 async def setup(bot):
-    await bot.add_cog(EasterHunt(bot))
+    """Add the Easter Hunt cog to the bot."""
+    # Create cog instance with Redis URL
+    redis_url = "redis://:onepiece0212!@localhost:6379/0"  # MODIFY THIS LINE AS NEEDED
+    await bot.add_cog(EasterHunt(bot, redis_url))
