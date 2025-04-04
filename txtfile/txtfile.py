@@ -22,72 +22,86 @@ class TxtFile(commands.Cog):
     async def txtfile(self, ctx, cog_name: str):
         """Send the source code file for a specified cog."""
         
-        # First check for case-insensitive match in the new structure: cogs/cogname/cogname.py
+        # First check if there's a direct folder match (case-insensitive)
         for folder_name in os.listdir(self.cogs_dir):
             folder_path = os.path.join(self.cogs_dir, folder_name)
             if os.path.isdir(folder_path) and folder_name.lower() == cog_name.lower():
-                # Check with the actual folder name (preserving case) for the file
-                file_path = os.path.join(folder_path, f"{folder_name}.py")
-                if os.path.exists(file_path):
+                # Found matching folder, check for the main Python file
+                main_file_path = os.path.join(folder_path, f"{folder_name}.py")
+                if os.path.exists(main_file_path):
                     await ctx.send(f"Here's the source code for `{folder_name}`:", 
-                                  file=discord.File(file_path))
+                                  file=discord.File(main_file_path))
+                    return
+                
+                # If main file not found, check for other Python files in the directory
+                py_files = [f for f in os.listdir(folder_path) if f.endswith('.py')]
+                if py_files:
+                    if len(py_files) == 1:
+                        file_path = os.path.join(folder_path, py_files[0])
+                        await ctx.send(f"Here's the source code for `{folder_name}/{py_files[0]}`:", 
+                                      file=discord.File(file_path))
+                    else:
+                        await ctx.send(f"Multiple Python files found in `{folder_name}`. Please specify which one:\n" + 
+                                      "\n".join([f"{folder_name}/{py_file}" for py_file in py_files]))
                     return
         
-        # If not exact match, try partial case-insensitive matches in folder names
+        # If no matching folder by name, try partial matches
         possible_folders = []
         for folder_name in os.listdir(self.cogs_dir):
             folder_path = os.path.join(self.cogs_dir, folder_name)
             if os.path.isdir(folder_path) and cog_name.lower() in folder_name.lower():
-                # Use the actual folder name for the file path
-                main_file = os.path.join(folder_path, f"{folder_name}.py")
-                if os.path.exists(main_file):
-                    possible_folders.append((folder_name, main_file))
+                possible_folders.append(folder_name)
         
-        # If folders found with partial matches
         if possible_folders:
             if len(possible_folders) == 1:
-                # If only one match, send it
-                folder_name, file_path = possible_folders[0]
-                await ctx.send(f"Here's the source code for `{folder_name}`:", 
-                              file=discord.File(file_path))
+                folder_name = possible_folders[0]
+                folder_path = os.path.join(self.cogs_dir, folder_name)
+                
+                # Check for main file first
+                main_file_path = os.path.join(folder_path, f"{folder_name}.py")
+                if os.path.exists(main_file_path):
+                    await ctx.send(f"Here's the source code for `{folder_name}`:", 
+                                  file=discord.File(main_file_path))
+                    return
+                
+                # Check for any Python files
+                py_files = [f for f in os.listdir(folder_path) if f.endswith('.py')]
+                if py_files:
+                    if len(py_files) == 1:
+                        file_path = os.path.join(folder_path, py_files[0])
+                        await ctx.send(f"Here's the source code for `{folder_name}/{py_files[0]}`:", 
+                                      file=discord.File(file_path))
+                    else:
+                        await ctx.send(f"Multiple Python files found in `{folder_name}`. Please specify which one:\n" + 
+                                      "\n".join([f"{folder_name}/{py_file}" for py_file in py_files]))
+                    return
             else:
-                # If multiple matches, ask the user to specify
                 await ctx.send(f"Multiple cogs found with name similar to `{cog_name}`. Please specify which one:\n" + 
-                              "\n".join([folder_name for folder_name, _ in possible_folders]))
-            return
-            
-        # As a fallback, check for legacy cog structure (direct in cogs folder)
-        # First check exact case match
-        legacy_path = os.path.join(self.cogs_dir, f"{cog_name}.py")
-        if os.path.exists(legacy_path):
-            await ctx.send(f"Here's the source code for legacy cog `{cog_name}`:", 
-                          file=discord.File(legacy_path))
-            return
-        
-        # Then check case-insensitive match in the legacy structure
-        for filename in os.listdir(self.cogs_dir):
-            if filename.lower() == f"{cog_name.lower()}.py":
-                legacy_path = os.path.join(self.cogs_dir, filename)
-                await ctx.send(f"Here's the source code for legacy cog `{filename[:-3]}`:", 
-                              file=discord.File(legacy_path))
+                              "\n".join(possible_folders))
                 return
-            
-        # If still not found, do a more thorough search through all Python files (case insensitive)
+        
+        # If still not found, look for Python files directly in the cogs folder
+        for file_name in os.listdir(self.cogs_dir):
+            if file_name.endswith('.py') and cog_name.lower() in file_name.lower():
+                file_path = os.path.join(self.cogs_dir, file_name)
+                await ctx.send(f"Here's the source code for `{file_name}`:", 
+                              file=discord.File(file_path))
+                return
+        
+        # Finally, if nothing found, do a recursive search
         possible_files = []
         for root, dirs, files in os.walk(self.cogs_dir):
-            for filename in files:
-                if filename.endswith('.py') and cog_name.lower() in filename.lower():
-                    relative_path = os.path.relpath(os.path.join(root, filename), self.cogs_dir)
-                    possible_files.append((relative_path, os.path.join(root, filename)))
+            for file_name in files:
+                if file_name.endswith('.py') and cog_name.lower() in file_name.lower():
+                    relative_path = os.path.relpath(os.path.join(root, file_name), self.cogs_dir)
+                    possible_files.append((relative_path, os.path.join(root, file_name)))
         
         if possible_files:
             if len(possible_files) == 1:
-                # If only one file match, send it
                 relative_path, file_path = possible_files[0]
                 await ctx.send(f"Here's the source code for `{relative_path}`:", 
                               file=discord.File(file_path))
             else:
-                # If multiple file matches, ask the user to specify
                 await ctx.send(f"Multiple files found containing `{cog_name}`. Please specify which one:\n" + 
                               "\n".join([rel_path for rel_path, _ in possible_files]))
         else:
