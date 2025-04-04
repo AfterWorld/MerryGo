@@ -22,22 +22,21 @@ class TxtFile(commands.Cog):
     async def txtfile(self, ctx, cog_name: str):
         """Send the source code file for a specified cog."""
         
-        # First check for exact match in the new structure: cogs/cogname/cogname.py
-        # No case sensitivity for folder name comparison
+        # First check for exact case-sensitive match in the new structure: cogs/cogname/cogname.py
         for folder_name in os.listdir(self.cogs_dir):
             folder_path = os.path.join(self.cogs_dir, folder_name)
-            if os.path.isdir(folder_path) and folder_name.lower() == cog_name.lower():
+            if os.path.isdir(folder_path) and folder_name == cog_name:  # Case sensitive match
                 file_path = os.path.join(folder_path, f"{folder_name}.py")
                 if os.path.exists(file_path):
                     await ctx.send(f"Here's the source code for `{folder_name}`:", 
                                   file=discord.File(file_path))
                     return
         
-        # If not exact match, try partial matches in folder names
+        # If not exact match, try partial case-sensitive matches in folder names
         possible_folders = []
         for folder_name in os.listdir(self.cogs_dir):
             folder_path = os.path.join(self.cogs_dir, folder_name)
-            if os.path.isdir(folder_path) and cog_name.lower() in folder_name.lower():
+            if os.path.isdir(folder_path) and cog_name in folder_name:  # Case sensitive partial match
                 main_file = os.path.join(folder_path, f"{folder_name}.py")
                 if os.path.exists(main_file):
                     possible_folders.append((folder_name, main_file))
@@ -62,11 +61,11 @@ class TxtFile(commands.Cog):
                           file=discord.File(legacy_path))
             return
             
-        # If still not found, do a more thorough search through all Python files
+        # If still not found, do a more thorough search through all Python files (case sensitive)
         possible_files = []
         for root, dirs, files in os.walk(self.cogs_dir):
             for filename in files:
-                if filename.endswith('.py') and cog_name.lower() in filename.lower():
+                if filename.endswith('.py') and cog_name in filename:  # Case sensitive file match
                     relative_path = os.path.relpath(os.path.join(root, filename), self.cogs_dir)
                     possible_files.append((relative_path, os.path.join(root, filename)))
         
