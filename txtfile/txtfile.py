@@ -22,21 +22,23 @@ class TxtFile(commands.Cog):
     async def txtfile(self, ctx, cog_name: str):
         """Send the source code file for a specified cog."""
         
-        # First check for exact case-sensitive match in the new structure: cogs/cogname/cogname.py
+        # First check for case-insensitive match in the new structure: cogs/cogname/cogname.py
         for folder_name in os.listdir(self.cogs_dir):
             folder_path = os.path.join(self.cogs_dir, folder_name)
-            if os.path.isdir(folder_path) and folder_name == cog_name:  # Case sensitive match
+            if os.path.isdir(folder_path) and folder_name.lower() == cog_name.lower():
+                # Check with the actual folder name (preserving case) for the file
                 file_path = os.path.join(folder_path, f"{folder_name}.py")
                 if os.path.exists(file_path):
                     await ctx.send(f"Here's the source code for `{folder_name}`:", 
                                   file=discord.File(file_path))
                     return
         
-        # If not exact match, try partial case-sensitive matches in folder names
+        # If not exact match, try partial case-insensitive matches in folder names
         possible_folders = []
         for folder_name in os.listdir(self.cogs_dir):
             folder_path = os.path.join(self.cogs_dir, folder_name)
-            if os.path.isdir(folder_path) and cog_name in folder_name:  # Case sensitive partial match
+            if os.path.isdir(folder_path) and cog_name.lower() in folder_name.lower():
+                # Use the actual folder name for the file path
                 main_file = os.path.join(folder_path, f"{folder_name}.py")
                 if os.path.exists(main_file):
                     possible_folders.append((folder_name, main_file))
@@ -55,17 +57,26 @@ class TxtFile(commands.Cog):
             return
             
         # As a fallback, check for legacy cog structure (direct in cogs folder)
+        # First check exact case match
         legacy_path = os.path.join(self.cogs_dir, f"{cog_name}.py")
         if os.path.exists(legacy_path):
             await ctx.send(f"Here's the source code for legacy cog `{cog_name}`:", 
                           file=discord.File(legacy_path))
             return
+        
+        # Then check case-insensitive match in the legacy structure
+        for filename in os.listdir(self.cogs_dir):
+            if filename.lower() == f"{cog_name.lower()}.py":
+                legacy_path = os.path.join(self.cogs_dir, filename)
+                await ctx.send(f"Here's the source code for legacy cog `{filename[:-3]}`:", 
+                              file=discord.File(legacy_path))
+                return
             
-        # If still not found, do a more thorough search through all Python files (case sensitive)
+        # If still not found, do a more thorough search through all Python files (case insensitive)
         possible_files = []
         for root, dirs, files in os.walk(self.cogs_dir):
             for filename in files:
-                if filename.endswith('.py') and cog_name in filename:  # Case sensitive file match
+                if filename.endswith('.py') and cog_name.lower() in filename.lower():
                     relative_path = os.path.relpath(os.path.join(root, filename), self.cogs_dir)
                     possible_files.append((relative_path, os.path.join(root, filename)))
         
